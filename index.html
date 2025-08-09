@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>급식 정보 알리미</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f0f2f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: white;
+            padding: 30px 40px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            font-weight: 700;
+            margin-bottom: 25px;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        #date-input {
+            flex-grow: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+        }
+
+        #fetch-btn {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        #fetch-btn:hover {
+            background-color: #0056b3;
+        }
+
+        #meal-info {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f9f9f9;
+            border: 1px solid #eee;
+            border-radius: 5px;
+            min-height: 150px;
+            text-align: left;
+            white-space: pre-line;
+            line-height: 1.8;
+        }
+
+        .loading, .error {
+            color: #888;
+            font-size: 18px;
+            padding-top: 40px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>오늘의 급식</h1>
+        <div class="input-group">
+            <input type="date" id="date-input">
+            <button id="fetch-btn">급식 보기</button>
+        </div>
+        <div id="meal-info">
+            <p>날짜를 선택하고 '급식 보기' 버튼을 눌러주세요.</p>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('fetch-btn').addEventListener('click', () => {
+            const dateInput = document.getElementById('date-input');
+            const selectedDate = dateInput.value;
+
+            if (!selectedDate) {
+                alert('날짜를 선택해주세요.');
+                return;
+            }
+
+            // 날짜 형식을 YYYY-MM-DD 에서 YYYYMMDD 로 변경
+            const ymd = selectedDate.replace(/-/g, '');
+            const mealInfoDiv = document.getElementById('meal-info');
+
+            // API URL 생성
+            // 참고: 웹 브라우저에서 직접 외부 API를 호출하면 CORS(Cross-Origin Resource Sharing) 정책 위반 오류가 발생할 수 있습니다.
+            // 만약 오류가 발생한다면, CORS 문제를 해결해주는 프록시 서버를 이용해야 합니다.
+            // 예: const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
+            const apiUrl = `https://open.neis.go.kr/hub/mealServiceDietInfo?ATPT_OFCDC_SC_CODE=J10&SD_SCHUL_CODE=7661029&MLSV_YMD=${ymd}`;
+
+            mealInfoDiv.innerHTML = '<p class="loading">급식 정보를 불러오는 중입니다...</p>';
+
+            fetch(apiUrl)
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('네트워크에 문제가 발생했습니다.');
+                    }
+                    return response.text();
+                })
+                .then(data => {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(data, "text/xml"); [1]
+
+                    const result = xmlDoc.getElementsByTagName("RESULT")[0];
+                    if (result) {
+                        const resultCode = result.getElementsByTagName("CODE")[0].textContent;
+                        const resultMsg = result.getElementsByTagName("MESSAGE")[0].textContent;
+
+                        // "INFO-200"은 데이터가 없는 경우의 코드입니다. [14]
+                        if (resultCode === "INFO-200") {
+                            mealInfoDiv.innerHTML = `<p class="error">${resultMsg}</p>`;
+                            return;
+                        }
+                    }
+
+                    const mealRows = xmlDoc.getElementsByTagName("row");
+                    if (mealRows.length > 0) {
+                        let mealData = "";
+                        for(let i=0; i < mealRows.length; i++) {
+                            const mealName = mealRows[i].getElementsByTagName("MMEAL_SC_NM")[0].textContent;
+                            const dishInfo = mealRows[i].getElementsByTagName("DDISH_INFO")[0].textContent;
+                            
+                            mealData += `<strong>[${mealName}]</strong>\n`;
+                            // <br/> 태그를 줄바꿈으로 변경하여 가독성을 높입니다.
+                            mealData += `${dishInfo.replace(/<br\s*\/?>/gi, '\n')}\n\n`;
+                        }
+                        mealInfoDiv.textContent = mealData.trim();
+                    } else {
+                        mealInfoDiv.innerHTML = '<p class="error">해당 날짜의 급식 정보가 없습니다.</p>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Fetch Error:', error);
+                    mealInfoDiv.innerHTML = `<p class="error">정보를 불러오는 데 실패했습니다. 다시 시도해주세요.</p>`;
+                });
+        });
+
+        // 페이지 로드 시 오늘 날짜를 기본값으로 설정 [6]
+        document.getElementById('date-input').value = new Date().toISOString().substring(0, 10);
+    </script>
+
+</body>
+</html>
